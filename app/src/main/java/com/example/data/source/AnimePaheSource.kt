@@ -105,7 +105,7 @@ class AnimePaheSource(private val settingsManager: SettingsManager) : ExtensionS
                             EpisodeInfo(
                                 id = item.optString("id", ""),
                                 episodeNum = item.optDouble("episode", 0.0).toFloat(),
-                                title = item.optString("title", null),
+                                title = item.optString("title", ""),
                                 session = item.optString("session", ""),
                                 snapshot = item.optString("snapshot", ""),
                                 duration = item.optString("duration", "")

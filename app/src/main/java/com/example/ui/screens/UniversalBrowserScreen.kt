@@ -111,7 +111,6 @@ fun UniversalBrowserScreen(
                         settings.apply {
                             javaScriptEnabled = true
                             domStorageEnabled = true
-                            databaseEnabled = true
                             loadWithOverviewMode = true
                             useWideViewPort = true
                             setSupportMultipleWindows(false) // Important: Prevents popunder window creation!

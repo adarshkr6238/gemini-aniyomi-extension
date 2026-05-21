@@ -22,7 +22,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 sealed interface Screen {
-    object Explore : Screen
+    object Library : Screen
+    object Browse : Screen
+    object More : Screen
     data class Details(val anime: AnimeInfo) : Screen
     data class Player(val anime: AnimeInfo, val episode: EpisodeInfo) : Screen
     data class UniversalBrowser(val initialUrl: String) : Screen
@@ -42,7 +44,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
     private val animePaheSource = AnimePaheSource(settingsManager)
 
     // Navigation and UX state
-    private val _currentScreen = MutableStateFlow<Screen>(Screen.Explore)
+    private val _currentScreen = MutableStateFlow<Screen>(Screen.Library)
     val currentScreen: StateFlow<Screen> = _currentScreen.asStateFlow()
 
     private val screenStack = mutableListOf<Screen>()
@@ -82,6 +84,12 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
 
     fun navigateTo(screen: Screen) {
         screenStack.add(_currentScreen.value)
+        _currentScreen.value = screen
+    }
+
+    fun navigateToBottomTab(screen: Screen) {
+        // Don't add to backstack for root tabs
+        screenStack.clear()
         _currentScreen.value = screen
     }
 

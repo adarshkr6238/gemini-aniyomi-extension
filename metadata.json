@@ -1,5 +1,5 @@
 {
-  "name": "Aniyomi Stream",
+  "name": "AniStream",
   "description": "An Aniyomi-inspired video and anime streaming player supporting customizable domains, AnimePahe integration, quality control, language settings, subtitle style control, and built-in ad/popup blockers.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
