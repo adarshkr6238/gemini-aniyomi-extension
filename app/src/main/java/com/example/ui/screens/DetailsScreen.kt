@@ -33,6 +33,9 @@ import com.example.ui.viewmodel.LceState
 import com.example.ui.viewmodel.Screen
 import com.example.ui.viewmodel.StreamViewModel
 
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailsScreen(
@@ -40,8 +43,12 @@ fun DetailsScreen(
     viewModel: StreamViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val episodesState by viewModel.episodesState.collectAsState()
     val isBookmarked = viewModel.isBookmarked(anime)
+    
+    val pullRefreshState = rememberPullToRefreshState()
+    val isRefreshing = episodesState is LceState.Loading
 
     Scaffold(
         topBar = {
@@ -76,12 +83,19 @@ fun DetailsScreen(
         },
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        Column(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.loadEpisodes(anime) },
+            state = pullRefreshState,
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+            ) {
             // Anime Poster Header (overlapping banner style)
             Card(
                 modifier = Modifier
@@ -242,7 +256,7 @@ fun DetailsScreen(
                                     EpisodeGridItem(
                                         episode = episode,
                                         onClick = {
-                                            viewModel.loadVideoSourcesAndPlay(anime, episode)
+                                            viewModel.loadVideoSourcesAndPlay(anime, episode, context)
                                             viewModel.navigateTo(Screen.Player(anime, episode))
                                         }
                                     )
@@ -252,10 +266,11 @@ fun DetailsScreen(
                     }
                     is LceState.Idle -> {}
                 }
-            }
-        }
-    }
-}
+            } // AnimatedVisibility
+        } // Column
+        } // PullToRefreshBox
+    } // Scaffold
+} // DetailsScreen
 
 @Composable
 fun EpisodeGridItem(

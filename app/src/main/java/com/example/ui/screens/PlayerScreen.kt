@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -41,7 +42,8 @@ import com.example.ui.viewmodel.StreamViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     anime: AnimeInfo,
@@ -63,6 +65,8 @@ fun PlayerScreen(
     var showQualitySelector by remember { mutableStateOf(false) }
     var showAudioSelector by remember { mutableStateOf(false) }
     var showSubtitleSelector by remember { mutableStateOf(false) }
+    var showResizeSelector by remember { mutableStateOf(false) }
+    var resizeMode by remember { mutableIntStateOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
     // Setup ExoPlayer
     val exoPlayer = remember {
@@ -85,17 +89,29 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     DisposableEffect(exoPlayer) {
         val job = scope.launch {
-            while (true) {
-                playbackPosition = exoPlayer.currentPosition
-                if (exoPlayer.duration > 0) {
-                    duration = exoPlayer.duration
+            try {
+                while (true) {
+                    try {
+                        playbackPosition = exoPlayer.currentPosition
+                        if (exoPlayer.duration > 0) {
+                            duration = exoPlayer.duration
+                        }
+                    } catch (e: Throwable) {
+                        Log.e("PlayerScreen", "Exception checking tracker position: ${e.message}")
+                    }
+                    delay(1000)
                 }
-                delay(1000)
+            } catch (e: Throwable) {
+                // Task cancellation or thread interrupt during delay
             }
         }
         onDispose {
             job.cancel()
-            exoPlayer.release()
+            try {
+                exoPlayer.release()
+            } catch (e: Throwable) {
+                Log.e("PlayerScreen", "Exception releasing ExoPlayer: ${e.message}")
+            }
         }
     }
 
@@ -162,7 +178,11 @@ fun PlayerScreen(
                     PlayerView(ctx).apply {
                         player = exoPlayer
                         useController = false
+                        this.resizeMode = resizeMode
                     }
+                },
+                update = { view ->
+                    view.resizeMode = resizeMode
                 },
                 modifier = Modifier
                     .fillMaxSize()
@@ -219,7 +239,10 @@ fun PlayerScreen(
                             )
                         }
 
-                        // Playback Settings menu options (Quality, audio language, subtitles!)
+                        // Playback Settings menu options (Video Size, Quality, audio language, subtitles!)
+                        IconButton(onClick = { showResizeSelector = true }) {
+                            Icon(Icons.Default.AspectRatio, contentDescription = "Video Size", tint = Color.White)
+                        }
                         IconButton(onClick = { showQualitySelector = true }) {
                             Icon(Icons.Default.HighQuality, contentDescription = "Quality Select", tint = Color.White)
                         }
@@ -315,7 +338,11 @@ fun PlayerScreen(
                             onValueChange = { percent ->
                                 if (duration > 0) {
                                     val position = (percent * duration).toLong()
-                                    exoPlayer.seekTo(position)
+                                    try {
+                                        exoPlayer.seekTo(position)
+                                    } catch (e: Throwable) {
+                                        Log.e("PlayerScreen", "Exception seeking: ${e.message}")
+                                    }
                                 }
                             },
                             colors = SliderDefaults.colors(
@@ -334,158 +361,199 @@ fun PlayerScreen(
     // Modal Drawer / dialog sheets for stream configurations
     
     // Quality Selection Modal
-    if (showQualitySelector) {
-        AlertDialog(
-            onDismissRequest = { showQualitySelector = false },
-            title = { Text("Select Playback Quality") },
-            text = {
-                Column {
-                    when (val state = videoSourcesState) {
-                        is LceState.Success -> {
-                            state.data.forEach { source ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            showQualitySelector = false
-                                            viewModel.resolveStreamLink(source)
-                                        }
-                                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = if (resolvedVideoUrl == source.url) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(text = source.quality, fontSize = 15.sp)
-                                }
+    if (showResizeSelector) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showResizeSelector = false },
+            sheetState = sheetState
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    "Select Video Size",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(16.dp)
+                )
+                val modes = listOf(
+                    "Fit to Screen" to androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                    "Fill Screen (Crop)" to androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                    "Stretch to Fill" to androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+                )
+                modes.forEach { (label, mode) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                resizeMode = mode
+                                showResizeSelector = false
                             }
-                        }
-                        else -> {
-                            Text("Loading stream sources...")
-                        }
+                            .padding(vertical = 16.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = if (resizeMode == mode) MaterialTheme.colorScheme.primary else Color.Transparent)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(text = label, fontSize = 16.sp)
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showQualitySelector = false }) {
-                    Text("Close")
-                }
             }
-        )
+        }
     }
-
-    // Audio Language Selector
-    if (showAudioSelector) {
-        AlertDialog(
-            onDismissRequest = { showAudioSelector = false },
-            title = { Text("Select Audio Language") },
-            text = {
-                val audioTracks = remember { getExoPlayerTracks(exoPlayer, C.TRACK_TYPE_AUDIO) }
-                Column {
-                    if (audioTracks.isEmpty()) {
-                        Text(
-                            text = "Only standard stereo feed is embedded in this server.",
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    } else {
-                        audioTracks.forEach { (trackGroup, trackIdx, label, isSelected) ->
+    
+    if (showQualitySelector) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showQualitySelector = false },
+            sheetState = sheetState
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    "Select Playback Quality",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(16.dp)
+                )
+                when (val state = videoSourcesState) {
+                    is LceState.Success -> {
+                        state.data.forEach { source ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        showAudioSelector = false
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                            .buildUpon()
-                                            .setOverrideForType(TrackSelectionOverride(trackGroup, trackIdx))
-                                            .build()
+                                        showQualitySelector = false
+                                        viewModel.resolveStreamLink(source, context)
                                     }
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                                    .padding(vertical = 16.dp, horizontal = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(text = label, fontSize = 15.sp)
+                                Icon(Icons.Default.Check, contentDescription = null, tint = if (resolvedVideoUrl == source.url || resolvedVideoUrl == "extract:${source.url}") MaterialTheme.colorScheme.primary else Color.Transparent)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Text(text = source.quality, fontSize = 16.sp)
                             }
                         }
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAudioSelector = false }) {
-                    Text("Close")
+                    else -> {
+                        Text("Loading stream sources...", modifier = Modifier.padding(16.dp))
+                    }
                 }
             }
-        )
+        }
+    }
+
+    // Audio Language Selector
+    if (showAudioSelector) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = { showAudioSelector = false },
+            sheetState = sheetState
+        ) {
+            val audioTracks = remember { getExoPlayerTracks(exoPlayer, C.TRACK_TYPE_AUDIO) }
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    "Select Audio Language",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(16.dp)
+                )
+                if (audioTracks.isEmpty()) {
+                    Text(
+                        text = "Only standard stereo feed is embedded in this server.",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                } else {
+                    audioTracks.forEach { (trackGroup, trackIdx, label, isSelected) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showAudioSelector = false
+                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                        .buildUpon()
+                                        .setOverrideForType(TrackSelectionOverride(trackGroup, trackIdx))
+                                        .build()
+                                }
+                                .padding(vertical = 16.dp, horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(text = label, fontSize = 16.sp)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Subtitle Control Sheet
     if (showSubtitleSelector) {
         val subtitleTracks = remember { getExoPlayerTracks(exoPlayer, C.TRACK_TYPE_TEXT) }
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showSubtitleSelector = false },
-            title = { Text("Subtitle Controls") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Subtitle Tracks", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    
-                    // Enable/Disable toggler
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                val isCurrentlyDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-                                exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                    .buildUpon()
-                                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !isCurrentlyDisabled)
-                                    .build()
-                                showSubtitleSelector = false
-                            }
-                            .padding(vertical = 8.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val isDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
-                        Icon(
-                            imageVector = if (isDisabled) Icons.Default.ClosedCaptionDisabled else Icons.Default.ClosedCaption,
-                            contentDescription = null,
-                            tint = if (!isDisabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(text = if (isDisabled) "Subtitles Disabled (Turn On)" else "Subtitles Active (Turn Off)")
-                    }
+            sheetState = sheetState
+        ) {
+            Column(modifier = Modifier.padding(bottom = 32.dp)) {
+                Text(
+                    "Subtitle Controls",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(16.dp)
+                )
+                
+                // Enable/Disable toggler
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val isCurrentlyDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                .buildUpon()
+                                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !isCurrentlyDisabled)
+                                .build()
+                            showSubtitleSelector = false
+                        }
+                        .padding(vertical = 16.dp, horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val isDisabled = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
+                    Icon(
+                        imageVector = if (isDisabled) Icons.Default.ClosedCaptionDisabled else Icons.Default.ClosedCaption,
+                        contentDescription = null,
+                        tint = if (!isDisabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(text = if (isDisabled) "Subtitles Disabled (Turn On)" else "Subtitles Active (Turn Off)")
+                }
 
-                    if (subtitleTracks.isNotEmpty()) {
-                        Divider()
-                        subtitleTracks.forEach { (trackGroup, trackIdx, label, isSelected) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showSubtitleSelector = false
-                                        // Enable track type if disabled
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
-                                            .buildUpon()
-                                            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                                            .setOverrideForType(TrackSelectionOverride(trackGroup, trackIdx))
-                                            .build()
-                                    }
-                                    .padding(vertical = 12.dp, horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(text = label, fontSize = 15.sp)
-                            }
+                if (subtitleTracks.isNotEmpty()) {
+                    HorizontalDivider()
+                    subtitleTracks.forEach { (trackGroup, trackIdx, label, isSelected) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showSubtitleSelector = false
+                                    // Enable track type if disabled
+                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                        .buildUpon()
+                                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                        .setOverrideForType(TrackSelectionOverride(trackGroup, trackIdx))
+                                        .build()
+                                }
+                                .padding(vertical = 16.dp, horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(text = label, fontSize = 16.sp)
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showSubtitleSelector = false }) {
-                    Text("Close")
-                }
             }
-        )
+        }
     }
 }
 

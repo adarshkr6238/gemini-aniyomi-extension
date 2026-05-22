@@ -7,7 +7,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
-class SettingsManager(context: Context) {
+class SettingsManager(val context: Context) {
     private val prefs = context.getSharedPreferences("aniyomi_stream_prefs", Context.MODE_PRIVATE)
     
     private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
@@ -38,7 +38,10 @@ class SettingsManager(context: Context) {
 
     var animePaheDomain: String
         get() = prefs.getString(KEY_ANIMEPAHE_DOMAIN, DEFAULT_ANIMEPAHE_DOMAIN) ?: DEFAULT_ANIMEPAHE_DOMAIN
-        set(value) = prefs.edit().putString(KEY_ANIMEPAHE_DOMAIN, value).apply()
+        set(value) {
+            val url = if (!value.startsWith("http")) "https://$value" else value
+            prefs.edit().putString(KEY_ANIMEPAHE_DOMAIN, url).apply()
+        }
 
     var preferredQuality: String
         get() = prefs.getString(KEY_PREFERRED_QUALITY, DEFAULT_QUALITY) ?: DEFAULT_QUALITY
@@ -114,8 +117,9 @@ class SettingsManager(context: Context) {
 
     fun addCustomSite(name: String, url: String) {
         val current = getCustomSites().toMutableList()
-        if (current.none { it.second == url }) {
-            current.add(name to url)
+        val validUrl = if (!url.startsWith("http")) "https://$url" else url
+        if (current.none { it.second == validUrl }) {
+            current.add(name to validUrl)
             saveCustomSites(current)
         }
     }

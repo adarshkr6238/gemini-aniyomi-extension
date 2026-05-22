@@ -8,6 +8,7 @@ interface ExtensionSource {
     val name: String
     val baseUrl: String
     
+    suspend fun getLatestReleases(): List<AnimeInfo>
     suspend fun search(query: String): List<AnimeInfo>
     suspend fun getEpisodes(animeSession: String): List<EpisodeInfo>
     suspend fun getVideoLinks(animeSession: String, episodeSession: String): List<VideoSource>

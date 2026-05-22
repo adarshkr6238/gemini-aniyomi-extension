@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
@@ -13,6 +14,9 @@ import com.example.data.model.AnimeInfo
 import com.example.data.model.EpisodeInfo
 import com.example.data.model.VideoSource
 import com.example.data.source.AnimePaheSource
+import com.example.data.source.ExtensionSource
+import com.example.data.source.GenericHeuristicSource
+import com.example.data.source.WebViewFetcher
 import com.example.data.store.SettingsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +28,7 @@ import kotlinx.coroutines.withContext
 sealed interface Screen {
     object Library : Screen
     object Browse : Screen
+    data class SourceBrowse(val sourceName: String) : Screen
     object More : Screen
     data class Details(val anime: AnimeInfo) : Screen
     data class Player(val anime: AnimeInfo, val episode: EpisodeInfo) : Screen
@@ -41,7 +46,16 @@ sealed interface LceState<out T> {
 class StreamViewModel(application: Application) : AndroidViewModel(application) {
 
     val settingsManager = SettingsManager(application)
-    private val animePaheSource = AnimePaheSource(settingsManager)
+    private var activeSource: ExtensionSource = AnimePaheSource(settingsManager)
+
+    fun setActiveSource(name: String) {
+        if (name == "AnimePahe") {
+            activeSource = AnimePaheSource(settingsManager)
+        } else {
+            val url = settingsManager.getCustomSites().find { it.first == name }?.second ?: "https://example.com"
+            activeSource = GenericHeuristicSource(url, name, settingsManager.context)
+        }
+    }
 
     // Navigation and UX state
     private val _currentScreen = MutableStateFlow<Screen>(Screen.Library)
@@ -122,6 +136,23 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         searchQuery = query
     }
 
+    fun loadLatestReleases(force: Boolean = false) {
+        if (!force && _searchState.value is LceState.Success && searchQuery.trim().isEmpty()) return // already loaded
+        
+        _searchState.value = LceState.Loading
+        viewModelScope.launch {
+            try {
+                val results = withContext(Dispatchers.IO) {
+                    activeSource.getLatestReleases()
+                }
+                _searchState.value = LceState.Success(results)
+            } catch (e: Exception) {
+                Log.e("StreamViewModel", "Latest releases failure", e)
+                _searchState.value = LceState.Error(e.localizedMessage ?: "Unknown Error")
+            }
+        }
+    }
+
     fun performSearch() {
         if (searchQuery.trim().isEmpty()) return
         
@@ -129,7 +160,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 val results = withContext(Dispatchers.IO) {
-                    animePaheSource.search(searchQuery)
+                    activeSource.search(searchQuery)
                 }
                 _searchState.value = LceState.Success(results)
             } catch (e: Exception) {
@@ -144,7 +175,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 val results = withContext(Dispatchers.IO) {
-                    animePaheSource.getEpisodes(anime.session)
+                    activeSource.getEpisodes(anime.session)
                 }
                 _episodesState.value = LceState.Success(results)
             } catch (e: Exception) {
@@ -154,14 +185,14 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun loadVideoSourcesAndPlay(anime: AnimeInfo, episode: EpisodeInfo) {
+    fun loadVideoSourcesAndPlay(anime: AnimeInfo, episode: EpisodeInfo, context: Context? = null) {
         _videoSourcesState.value = LceState.Loading
         _resolvedVideoUrl.value = null
         
         viewModelScope.launch {
             try {
                 val sources = withContext(Dispatchers.IO) {
-                    animePaheSource.getVideoLinks(anime.session, episode.session)
+                    activeSource.getVideoLinks(anime.session, episode.session)
                 }
                 _videoSourcesState.value = LceState.Success(sources)
                 
@@ -170,7 +201,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
                     val preferred = settingsManager.preferredQuality
                     val matchedSource = sources.find { it.quality.contains(preferred) } ?: sources.first()
                     
-                    resolveStreamLink(matchedSource)
+                    resolveStreamLink(matchedSource, context)
                 } else {
                     _videoSourcesState.value = LceState.Error("No stream sources found for this episode.")
                 }
@@ -181,7 +212,7 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun resolveStreamLink(source: VideoSource) {
+    fun resolveStreamLink(source: VideoSource, context: Context? = null) {
         viewModelScope.launch {
             _resolvedVideoUrl.value = null
             try {
@@ -189,20 +220,26 @@ class StreamViewModel(application: Application) : AndroidViewModel(application) 
                     if (source.isDirect) {
                         source.url
                     } else {
-                        animePaheSource.resolveKwikUrl(source.url)
+                        val kwik = (activeSource as? AnimePaheSource)?.resolveKwikUrl(source.url)
+                        if (kwik != null) {
+                            kwik
+                        } else {
+                            val activeContext = context ?: settingsManager.context
+                            val extracted = WebViewFetcher.extractStreamUrl(activeContext, source.url)
+                            extracted ?: ""
+                        }
                     }
                 }
-                if (resolved != null) {
-                    Log.d("StreamViewModel", "Stream successfully resolved: $resolved")
-                    _resolvedVideoUrl.value = resolved
-                } else {
-                    Log.e("StreamViewModel", "Failed to decrypt Kwik url")
-                    _resolvedVideoUrl.value = null
-                }
+                Log.d("StreamViewModel", "Stream successfully resolved: $resolved")
+                _resolvedVideoUrl.value = resolved
             } catch (e: Exception) {
                 Log.e("StreamViewModel", "Decryption error", e)
             }
         }
+    }
+
+    fun setResolvedVideoUrlOverride(url: String) {
+        _resolvedVideoUrl.value = url
     }
 
     fun setBrowserUrlState(url: String) {

@@ -25,6 +25,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.blocker.AdBlocker
 import com.example.ui.viewmodel.StreamViewModel
 
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UniversalBrowserScreen(
@@ -34,6 +38,9 @@ fun UniversalBrowserScreen(
     var webView: WebView? by remember { mutableStateOf(null) }
     var webProgress by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(false) }
+    
+    val pullRefreshState = rememberPullToRefreshState()
+    var isRefreshing by remember { mutableStateOf(false) }
 
     val adBlockEnabled = viewModel.settingsManager.isAdBlockEnabled
 
@@ -105,17 +112,30 @@ fun UniversalBrowserScreen(
             }
 
             // Secure web view container
-            AndroidView(
-                factory = { context ->
-                    WebView(context).apply {
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            loadWithOverviewMode = true
-                            useWideViewPort = true
-                            setSupportMultipleWindows(false) // Important: Prevents popunder window creation!
-                            javaScriptCanOpenWindowsAutomatically = false // Blocks prompt loops
-                        }
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { 
+                    isRefreshing = true 
+                    webView?.reload() 
+                },
+                state = pullRefreshState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+            ) {
+                AndroidView(
+                    factory = { context ->
+                        WebView(context).apply {
+                            isNestedScrollingEnabled = true
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                loadWithOverviewMode = true
+                                useWideViewPort = true
+                                setSupportMultipleWindows(false) // Important: Prevents popunder window creation!
+                                javaScriptCanOpenWindowsAutomatically = false // Blocks prompt loops
+                                userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            }
                         
                         webViewClient = object : WebViewClient() {
                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -127,6 +147,7 @@ fun UniversalBrowserScreen(
 
                             override fun onPageFinished(view: WebView?, url: String?) {
                                 isLoading = false
+                                isRefreshing = false
                                 // Reinforce ad/popup blocking JS injections once fully loaded
                                 view?.evaluateJavascript(AdBlocker.AD_BLOCK_JS, null)
                             }
@@ -194,10 +215,9 @@ fun UniversalBrowserScreen(
                 update = { view ->
                     webView = view
                 },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f)
+                modifier = Modifier.fillMaxSize()
             )
+        }
         }
     }
 }

@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
                                 is Screen.Library -> LibraryScreen(viewModel = viewModel)
                                 is Screen.Browse -> BrowseScreen(viewModel = viewModel)
                                 is Screen.More -> MoreScreen(viewModel = viewModel)
+                                is Screen.SourceBrowse -> SourceBrowseScreen(viewModel = viewModel, sourceName = screen.sourceName)
                                 is Screen.Details -> DetailsScreen(anime = screen.anime, viewModel = viewModel)
                                 is Screen.Player -> PlayerScreen(anime = screen.anime, episode = screen.episode, viewModel = viewModel)
                                 is Screen.UniversalBrowser -> UniversalBrowserScreen(viewModel = viewModel)
